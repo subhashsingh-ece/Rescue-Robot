@@ -1,0 +1,194 @@
+#include <ESP32Servo.h>
+
+// Ultrasonic sensor
+const int TRIG_PIN = 5;
+const int ECHO_PIN = 18;
+
+// Servo scanner
+const int SERVO_PIN = 19;
+Servo scanner;
+
+// Motor indicator LEDs
+const int LEFT_FORWARD  = 26;
+const int LEFT_REVERSE  = 27;
+const int RIGHT_FORWARD = 32;
+const int RIGHT_REVERSE = 33;
+
+// Rescue controls
+const int BUTTON_PIN = 23;
+const int BUZZER_PIN = 25;
+const int RESCUE_LED = 2;
+
+// Reverse whenever distance is below 100 cm
+const int SAFE_DISTANCE = 100;
+
+long distanceCM() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(3);
+
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+
+  if (duration == 0) {
+    return 400; // No echo detected
+  }
+
+  return (long)(duration * 0.0343 / 2.0);
+}
+
+void stopRobot() {
+  digitalWrite(LEFT_FORWARD, LOW);
+  digitalWrite(LEFT_REVERSE, LOW);
+  digitalWrite(RIGHT_FORWARD, LOW);
+  digitalWrite(RIGHT_REVERSE, LOW);
+}
+
+void moveForward() {
+  digitalWrite(LEFT_FORWARD, HIGH);
+  digitalWrite(LEFT_REVERSE, LOW);
+  digitalWrite(RIGHT_FORWARD, HIGH);
+  digitalWrite(RIGHT_REVERSE, LOW);
+}
+
+void moveBackward() {
+  digitalWrite(LEFT_FORWARD, LOW);
+  digitalWrite(LEFT_REVERSE, HIGH);
+  digitalWrite(RIGHT_FORWARD, LOW);
+  digitalWrite(RIGHT_REVERSE, HIGH);
+}
+
+void rescueMode() {
+  stopRobot();
+
+  // Keep red rescue LED ON while buzzer sounds
+  digitalWrite(RESCUE_LED, HIGH);
+  tone(BUZZER_PIN, 2000);
+
+  Serial.println("RESCUE MODE ACTIVATED!");
+
+  unsigned long startTime = millis();
+
+  while (millis() - startTime < 3000) {
+    // Keep rescue mode active for 3 seconds
+    digitalWrite(RESCUE_LED, HIGH);
+    delay(10);
+  }
+
+  noTone(BUZZER_PIN);
+  digitalWrite(RESCUE_LED, LOW);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  pinMode(LEFT_FORWARD, OUTPUT);
+  pinMode(LEFT_REVERSE, OUTPUT);
+  pinMode(RIGHT_FORWARD, OUTPUT);
+  pinMode(RIGHT_REVERSE, OUTPUT);
+
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(RESCUE_LED, OUTPUT);
+
+  scanner.setPeriodHertz(50);
+  scanner.attach(SERVO_PIN, 500, 2400);
+  scanner.write(90);
+
+  stopRobot();
+  digitalWrite(RESCUE_LED, LOW);
+  noTone(BUZZER_PIN);
+
+  Serial.println("Smart Rescue Robot Ready!");
+}
+
+void loop() {
+  // Button pressed = rescue mode
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    rescueMode();
+
+    // Wait until button is released
+    while (digitalRead(BUTTON_PIN) == LOW) {
+      delay(20);
+    }
+
+    return;
+  }
+
+  // Measure front distance
+  scanner.write(90);
+  delay(100);
+
+  long front = distanceCM();
+
+  Serial.print("Front distance: ");
+  Serial.print(front);
+  Serial.println(" cm");
+
+  if (front >= SAFE_DISTANCE) {
+    // Clear path: move forward
+    moveForward();
+    delay(200);
+  } else {
+    // Obstacle within 100 cm: reverse
+    stopRobot();
+    delay(100);
+
+    Serial.println("Obstacle detected! Reversing.");
+
+    moveBackward();
+    delay(700);
+
+    stopRobot();
+    delay(150);
+
+    // Scan left and right
+    scanner.write(150);
+    delay(350);
+    long left = distanceCM();
+
+    scanner.write(30);
+    delay(350);
+    long right = distanceCM();
+
+    scanner.write(90);
+    delay(150);
+
+    Serial.print("Left: ");
+    Serial.print(left);
+    Serial.print(" cm | Right: ");
+    Serial.print(right);
+    Serial.println(" cm");
+
+    // Turn toward the side with more space
+    if (left > right) {
+      turnLeft();
+      delay(350);
+    } else {
+      turnRight();
+      delay(350);
+    }
+
+    stopRobot();
+  }
+}
+
+// Turn functions
+void turnLeft() {
+  digitalWrite(LEFT_FORWARD, LOW);
+  digitalWrite(LEFT_REVERSE, LOW);
+  digitalWrite(RIGHT_FORWARD, HIGH);
+  digitalWrite(RIGHT_REVERSE, LOW);
+}
+
+void turnRight() {
+  digitalWrite(LEFT_FORWARD, HIGH);
+  digitalWrite(LEFT_REVERSE, LOW);
+  digitalWrite(RIGHT_FORWARD, LOW);
+  digitalWrite(RIGHT_REVERSE, LOW);
+}
